@@ -8,6 +8,20 @@
   <artifactId>reactor-pool</artifactId>
   <version>0.0.1-SNAPSHOT</version>
 
+  <name>Reactor Pool</name>
+  <url>https://github.com/skroll/reactor-pool</url>
+
+  <licenses>
+    <license>
+      <name>Apache License, Version 2.0</name>
+      <url>http://www.apache.org/licenses/LICENSE-2.0</url>
+    </license>
+  </licenses>
+
+  <scm>
+    <url>https://github.com/skroll/reactor-pool</url>
+  </scm>
+
   <dependencies>
     <dependency>
       <groupId>io.projectreactor</groupId>
