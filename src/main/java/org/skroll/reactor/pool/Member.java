@@ -1,6 +1,15 @@
 package org.skroll.reactor.pool;
 
+/**
+ * A wrapped member of a {@link ReactivePool}.
+ * @param <T> the wrapped type
+ */
 public interface Member<T> extends CheckIn {
+  /**
+   * The wrapped object.
+   *
+   * @return the wrapped object
+   */
   T value();
 
   /**
