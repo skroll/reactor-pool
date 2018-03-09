@@ -1,13 +1,13 @@
 package org.skroll.reactor.pool;
 
+import java.util.concurrent.TimeUnit;
+import java.util.function.BiFunction;
+
 import reactor.core.Disposable;
 import reactor.core.Exceptions;
 import reactor.util.Logger;
 import reactor.util.Loggers;
 import reactor.util.annotation.Nullable;
-
-import java.util.concurrent.TimeUnit;
-import java.util.function.BiFunction;
 
 final class DecoratingMember<T> implements Member<T> {
   private static final Logger log = Loggers.getLogger(DecoratingMember.class);
@@ -21,7 +21,9 @@ final class DecoratingMember<T> implements Member<T> {
   private boolean checking;
   private long lastCheckTime;
 
-  DecoratingMember(@Nullable final T value, final BiFunction<? super T, ? super CheckIn, ? extends T> checkInDecorator, @Nullable final MemberMono<T> memberMono) {
+  DecoratingMember(@Nullable final T value,
+                   final BiFunction<? super T, ? super CheckIn, ? extends T> checkInDecorator,
+                   final MemberMono<T> memberMono) {
     this.checkInDecorator = checkInDecorator;
     this.memberMono = memberMono;
     this.value = value;
@@ -60,7 +62,7 @@ final class DecoratingMember<T> implements Member<T> {
         scheduled.dispose();
         scheduled = null;
       }
-      //log.debug("disposing value {}", value);
+      log.debug("disposing value {}", value);
       memberMono.pool.disposer.accept(value);
     } catch (Throwable e) {
       // make action configurable
@@ -71,7 +73,7 @@ final class DecoratingMember<T> implements Member<T> {
     }
   }
 
-  public void setValueAndClearReleasingFlag(T value) {
+  public void setValueAndClearReleasingFlag(final T value) {
     this.value = value;
     this.releasing = false;
     this.lastCheckTime = now();
@@ -94,6 +96,7 @@ final class DecoratingMember<T> implements Member<T> {
       log.debug("scheduled release in {}ms of {}", maxIdleTimeMs, this);
     }
   }
+
   public void markAsChecked() {
     checking = false;
     lastCheckTime = now();

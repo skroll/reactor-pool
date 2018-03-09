@@ -1,14 +1,5 @@
 package org.skroll.reactor.pool;
 
-import org.reactivestreams.Subscription;
-import reactor.core.*;
-import reactor.core.publisher.Mono;
-import reactor.core.publisher.Operators;
-import reactor.core.scheduler.Scheduler;
-import reactor.util.Logger;
-import reactor.util.Loggers;
-import reactor.util.concurrent.Queues;
-
 import java.io.Closeable;
 import java.util.Objects;
 import java.util.Queue;
@@ -19,13 +10,28 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiFunction;
 import java.util.function.Supplier;
 
+import org.reactivestreams.Subscription;
+
+import reactor.core.CoreSubscriber;
+import reactor.core.Disposable;
+import reactor.core.Disposables;
+import reactor.core.Exceptions;
+import reactor.core.publisher.Mono;
+import reactor.core.publisher.Operators;
+import reactor.core.publisher.Operators.MonoSubscriber;
+import reactor.core.scheduler.Scheduler;
+import reactor.util.Logger;
+import reactor.util.Loggers;
+import reactor.util.concurrent.Queues;
+
 final class MemberMono<T> extends Mono<Member<T>> implements Subscription, Closeable, Runnable {
   private static final Logger log = Loggers.getLogger(MemberMono.class);
 
   final AtomicReference<Subscribers<T>> subscribers;
 
   @SuppressWarnings({ "rawtypes", "unchecked" })
-  static final Subscribers EMPTY = new Subscribers(new MemberMonoSubscriber[0], new boolean[0], 0, 0);
+  static final Subscribers EMPTY =
+      new Subscribers(new MemberMonoSubscriber[0], new boolean[0], 0, 0);
 
   private final Queue<DecoratingMember<T>> initializedAvailable;
   private final Queue<DecoratingMember<T>> notInitialized;
@@ -37,10 +43,16 @@ final class MemberMono<T> extends Mono<Member<T>> implements Subscription, Close
   private final Scheduler scheduler;
   private final long createRetryIntervalMs;
 
+  // synchronized by 'wip'
   private final Disposable.Composite scheduled = Disposables.composite();
 
   final NonBlockingPool<T> pool;
 
+  // represents the number of outstanding member requests.
+  // the number is decremented when a new member value is
+  // initialized (a scheduled action with a subsequent drain call)
+  // or an existing value is available from the pool (queue) (and
+  // is then emitted)
   private final AtomicLong requested = new AtomicLong();
 
   private final AtomicLong initializeScheduled = new AtomicLong();
@@ -64,7 +76,10 @@ final class MemberMono<T> extends Mono<Member<T>> implements Subscription, Close
     this.pool = Objects.requireNonNull(pool);
   }
 
-  private DecoratingMember<T>[] createMembersArray(final int poolMaxSize, final BiFunction<? super T, ? super CheckIn, ? extends T> checkInDecorator) {
+  private DecoratingMember<T>[] createMembersArray(
+      final int poolMaxSize,
+      final BiFunction<? super T, ? super CheckIn, ? extends T> checkInDecorator
+  ) {
     @SuppressWarnings("unchecked")
     final DecoratingMember<T>[] m = new DecoratingMember[poolMaxSize];
 
@@ -77,6 +92,8 @@ final class MemberMono<T> extends Mono<Member<T>> implements Subscription, Close
 
   @Override
   public void subscribe(final CoreSubscriber<? super Member<T>> actual) {
+    // the action of checking out a member from the pool is implemented
+    // as a subscription to the singleton MemberMono
     final MemberMonoSubscriber<T> s = new MemberMonoSubscriber<>(actual, this);
     actual.onSubscribe(s);
     if (pool.isClosed()) {
@@ -143,29 +160,30 @@ final class MemberMono<T> extends Mono<Member<T>> implements Subscription, Close
         scheduleReleases();
         scheduleChecks();
 
-        long r = requested.get(); // requested
-        log.debug("requested={}", r);
+        final long numRequested = requested.get();
+        log.debug("requested={}", numRequested);
 
-        long e = 0; // emitted
-        while (e != r) {
+        long numEmitted = 0; // emitted
+        while (numEmitted != numRequested) {
           if (cancelled) {
             disposeAll();
             return;
           }
-          Subscribers<T> subs = subscribers.get();
+          final Subscribers<T> subs = subscribers.get();
           // the check below is required so a tryEmit that returns false doesn't bring
           // abouts a spin on this loop
-          int c = subs.activeCount;
+          final int activeSubsCount = subs.activeCount;
           // if there have been some cancellations then adjust the requested amount by
           // increasing emitted e
-          e += Math.max(0, r - e - c);
-          if (c == 0) {
+          numEmitted += Math.max(0, numRequested - numEmitted - activeSubsCount);
+          if (activeSubsCount == 0) {
             // if no observers then we break the loop
             break;
           }
           // check for an already initialized available member
           final DecoratingMember<T> m = initializedAvailable.poll();
           log.debug("poll of available members returns {}", m);
+
           if (m == null) {
             // no members available, check for a released member (that needs to be
             // reinitialized before use)
@@ -174,7 +192,7 @@ final class MemberMono<T> extends Mono<Member<T>> implements Subscription, Close
               break;
             } else {
               // only schedule member initialization if there is enough demand,
-              boolean used = trySchedulingInitialization(r, e, m2);
+              boolean used = trySchedulingInitialization(numRequested, numEmitted, m2);
               if (!used) {
                 break;
               }
@@ -188,12 +206,13 @@ final class MemberMono<T> extends Mono<Member<T>> implements Subscription, Close
               log.debug("no health check required for {}", m);
               // this should not block because it just schedules emissions to observers
               if (tryEmit(subs, m)) {
-                e++;
+                numEmitted++;
               } else {
                 log.debug("no active subscribers");
               }
             }
           }
+
           // schedule release immediately of any member
           // queued for releasing
           scheduleReleases();
@@ -204,8 +223,8 @@ final class MemberMono<T> extends Mono<Member<T>> implements Subscription, Close
         // normally we don't reduce requested if it is Long.MAX_VALUE
         // but given that the only way to increase requested is by subscribing
         // (which increases it by one only) then requested will never be Long.MAX_VALUE
-        if (e != 0L) {
-          requested.addAndGet(-e);
+        if (numEmitted != 0L) {
+          requested.addAndGet(-numEmitted);
         }
         missed = wip.addAndGet(-missed);
         if (missed == 0) {
@@ -236,7 +255,8 @@ final class MemberMono<T> extends Mono<Member<T>> implements Subscription, Close
 
   private boolean shouldPerformHealthCheck(final DecoratingMember<T> m) {
     long now = scheduler.now(TimeUnit.MILLISECONDS);
-    return pool.idleTimeBeforeHealthCheckMs > 0 && now - m.lastCheckTime() >= pool.idleTimeBeforeHealthCheckMs;
+    return pool.idleTimeBeforeHealthCheckMs > 0
+        && now - m.lastCheckTime() >= pool.idleTimeBeforeHealthCheckMs;
   }
 
   private void scheduleChecks() {
@@ -263,14 +283,14 @@ final class MemberMono<T> extends Mono<Member<T>> implements Subscription, Close
 
   private boolean tryEmit(final Subscribers<T> subs, final DecoratingMember<T> m) {
     final int index = subs.index;
-    final MemberMonoSubscriber<T> s = subs.subscribers[index];
-    MemberMonoSubscriber<T> sNext = s;
+    final MemberMonoSubscriber<T> sub = subs.subscribers[index];
+    MemberMonoSubscriber<T> subNext = sub;
 
     // atomically bump up the index (if that entry has not been deleted in
     // the meantime by disposal)
     while (true) {
       final Subscribers<T> x = subscribers.get();
-      if (x.index == index && x.subscribers[index] == s) {
+      if (x.index == index && x.subscribers[index] == sub) {
         final boolean[] active = new boolean[x.active.length];
         System.arraycopy(x.active, 0, active, 0, active.length);
 
@@ -281,8 +301,11 @@ final class MemberMono<T> extends Mono<Member<T>> implements Subscription, Close
 
         active[nextIndex] = false;
 
-        if (subscribers.compareAndSet(x, new Subscribers<>(x.subscribers, active, x.activeCount - 1, nextIndex))) {
-          sNext = x.subscribers[nextIndex];
+        if (subscribers.compareAndSet(
+            x,
+            new Subscribers<>(x.subscribers, active, x.activeCount - 1, nextIndex))
+        ) {
+          subNext = x.subscribers[nextIndex];
           break;
         }
       } else {
@@ -292,15 +315,15 @@ final class MemberMono<T> extends Mono<Member<T>> implements Subscription, Close
     }
 
     final Scheduler.Worker worker = scheduler.createWorker();
-    worker.schedule(new Emitter<>(worker, sNext, m));
+    worker.schedule(new Emitter<>(worker, subNext, m));
     return true;
   }
 
   final class Initializer implements Runnable {
-    private final DecoratingMember<T> m;
+    private final DecoratingMember<T> member;
 
-    Initializer(final DecoratingMember<T> m) {
-      this.m = m;
+    Initializer(final DecoratingMember<T> member) {
+      this.member = member;
     }
 
     @Override
@@ -308,9 +331,9 @@ final class MemberMono<T> extends Mono<Member<T>> implements Subscription, Close
       if (!cancelled) {
         try {
           final T value = pool.factory.call();
-          m.setValueAndClearReleasingFlag(value);
+          member.setValueAndClearReleasingFlag(value);
           requested.incrementAndGet();
-          checkIn(m, true);
+          checkIn(member, true);
         } catch (final Throwable t) {
           Exceptions.throwIfFatal(t);
 
@@ -323,17 +346,17 @@ final class MemberMono<T> extends Mono<Member<T>> implements Subscription, Close
   }
 
   final class Releaser implements Runnable {
-    private DecoratingMember<T> m;
+    private DecoratingMember<T> member;
 
-    Releaser(final DecoratingMember<T> m) {
-      this.m = m;
+    Releaser(final DecoratingMember<T> member) {
+      this.member = member;
     }
 
     @Override
     public void run() {
       try {
-        m.disposeValue();
-        release(m);
+        member.disposeValue();
+        release(member);
       } catch (final Throwable t) {
         Exceptions.throwIfFatal(t);
       }
@@ -341,24 +364,24 @@ final class MemberMono<T> extends Mono<Member<T>> implements Subscription, Close
   }
 
   final class Checker implements Runnable {
-    private final DecoratingMember<T> m;
+    private final DecoratingMember<T> member;
 
-    public Checker(final DecoratingMember<T> m) {
-      this.m = m;
+    public Checker(final DecoratingMember<T> member) {
+      this.member = member;
     }
 
     @Override
     public void run() {
       try {
-        if (!pool.healthCheck.test(m.value())) {
-          m.disposeValue();
+        if (!pool.healthCheck.test(member.value())) {
+          member.disposeValue();
           scheduled.add(scheduler.schedule(() -> {
-            notInitialized.offer(m);
+            notInitialized.offer(member);
             drain();
           }, pool.createRetryIntervalMs, TimeUnit.MILLISECONDS));
         } else {
-          m.markAsChecked();
-          initializedAvailable.offer(m);
+          member.markAsChecked();
+          initializedAvailable.offer(member);
           drain();
         }
       } catch (Throwable t) {
@@ -451,7 +474,7 @@ final class MemberMono<T> extends Mono<Member<T>> implements Subscription, Close
         if (a.index >= j && a.index > 0) {
           next = new Subscribers<>(b, active, nextActiveCount, a.index - 1);
         } else {
-          next = new Subscribers<T>(b, active, nextActiveCount, a.index);
+          next = new Subscribers<>(b, active, nextActiveCount, a.index);
         }
       }
 
@@ -468,7 +491,10 @@ final class MemberMono<T> extends Mono<Member<T>> implements Subscription, Close
     final int activeCount;
     final int index;
 
-    Subscribers(final MemberMonoSubscriber<T>[] subscribers, final boolean[] active, final int activeCount, final int index) {
+    Subscribers(final MemberMonoSubscriber<T>[] subscribers,
+                final boolean[] active,
+                final int activeCount,
+                final int index) {
       // TODO: check subscribers length
       this.subscribers = subscribers;
       this.index = index;
@@ -480,19 +506,21 @@ final class MemberMono<T> extends Mono<Member<T>> implements Subscription, Close
   private static final class Emitter<T> implements Runnable {
     private final Scheduler.Worker worker;
     private final MemberMonoSubscriber<T> subscriber;
-    private final Member<T> m;
+    private final Member<T> member;
 
-    public Emitter(final Scheduler.Worker worker, final MemberMonoSubscriber<T> subscriber, final Member<T> m) {
+    public Emitter(final Scheduler.Worker worker,
+                   final MemberMonoSubscriber<T> subscriber,
+                   final Member<T> member) {
       this.worker = worker;
       this.subscriber = subscriber;
-      this.m = m;
+      this.member = member;
     }
 
     @Override
     public void run() {
       worker.dispose();
       try {
-        subscriber.onNext(m);
+        subscriber.onNext(member);
         subscriber.onComplete();
       } catch (final Throwable e) {
         Exceptions.throwIfFatal(e);
@@ -507,19 +535,21 @@ final class MemberMono<T> extends Mono<Member<T>> implements Subscription, Close
     drain();
   }
 
-  static final class MemberMonoSubscriber<T> extends Operators.MonoSubscriber<Member<T>, Member<T>> implements Disposable {
+  static final class MemberMonoSubscriber<T> extends MonoSubscriber<Member<T>, Member<T>>
+      implements Disposable {
     final AtomicReference<MemberMono<T>> parent = new AtomicReference<>();
-    Subscription s;
+    Subscription subscription;
 
-    public MemberMonoSubscriber(final CoreSubscriber<? super Member<T>> actual, final MemberMono<T> parent) {
+    public MemberMonoSubscriber(final CoreSubscriber<? super Member<T>> actual,
+                                final MemberMono<T> parent) {
       super(actual);
       this.parent.lazySet(parent);
     }
 
     @Override
     public void onSubscribe(final Subscription s) {
-      if (Operators.validate(this.s, s)) {
-        this.s = s;
+      if (Operators.validate(this.subscription, s)) {
+        this.subscription = s;
         actual.onSubscribe(this);
       }
     }

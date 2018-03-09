@@ -1,9 +1,4 @@
 package org.skroll.reactor.pool;
-;
-import reactor.core.Exceptions;
-import reactor.core.publisher.Mono;
-import reactor.core.scheduler.Scheduler;
-import reactor.core.scheduler.Schedulers;
 
 import java.util.Objects;
 import java.util.concurrent.Callable;
@@ -13,6 +8,15 @@ import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 
+import reactor.core.Exceptions;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Scheduler;
+import reactor.core.scheduler.Schedulers;
+
+/**
+ * Non-blocking implementation of a {@link ReactivePool}.
+ * @param <T> the type of pooled objects
+ */
 public class NonBlockingPool<T> implements ReactivePool<T> {
   final Callable<? extends T> factory;
   final Predicate<? super T> healthCheck;
@@ -28,11 +32,16 @@ public class NonBlockingPool<T> implements ReactivePool<T> {
   private final AtomicReference<MemberMono<T>> member = new AtomicReference<>();
   private volatile boolean closed;
 
-  /* package */NonBlockingPool(
-      final Callable<? extends T> factory, final Predicate<? super T> healthCheck, final Consumer<? super T> disposer,
-      final int maxSize, final long idleTimeBeforeHealthCheckMs, final long maxIdleTimeMs, final long createRetryIntervalMs,
-      final BiFunction<? super T, ? super CheckIn, ? extends T> checkInDecorator, final Scheduler scheduler, final Callable<Void> closeAction
-  ) {
+  NonBlockingPool(final Callable<? extends T> factory,
+                  final Predicate<? super T> healthCheck,
+                  final Consumer<? super T> disposer,
+                  final int maxSize,
+                  final long idleTimeBeforeHealthCheckMs,
+                  final long maxIdleTimeMs,
+                  final long createRetryIntervalMs,
+                  final BiFunction<? super T, ? super CheckIn, ? extends T> checkInDecorator,
+                  final Scheduler scheduler,
+                  final Callable<Void> closeAction) {
     this.factory = Objects.requireNonNull(factory);
     this.healthCheck = Objects.requireNonNull(healthCheck);
     this.disposer = Objects.requireNonNull(disposer);
@@ -103,27 +112,40 @@ public class NonBlockingPool<T> implements ReactivePool<T> {
     return closed;
   }
 
-  public static <T> Builder<T> factory(Callable<T> factory) {
+  public static <T> Builder<T> factory(final Callable<T> factory) {
     return new Builder<T>().factory(factory);
   }
 
   public static class Builder<T> {
     private static final Predicate<Object> ALWAYS_TRUE = o -> true;
-    private static final BiFunction<Object, CheckIn, Object> DEFAULT_CHECKIN_DECORATOR = (x, y) -> x;
+    private static final BiFunction<Object, CheckIn, Object> DEFAULT_CHECKIN_DECORATOR
+        = (x, y) -> x;
 
     private Callable<? extends T> factory;
-    private Predicate<? super T> healthCheck = ALWAYS_TRUE;
-    private long idleTimeBeforeHealthCheckMs = 1000;
-    private Consumer<? super T> disposer = ignored -> {};
-    private int maxSize = 10;
-    private long createRetryIntervalMs = 30000;
-    private Scheduler scheduler = Schedulers.elastic(); // TODO: Change?
+    private Predicate<? super T> healthCheck;
+    private long idleTimeBeforeHealthCheckMs;
+    private Consumer<? super T> disposer;
+    private int maxSize;
+    private long createRetryIntervalMs;
+    private Scheduler scheduler;
     private long maxIdleTimeMs;
+
     @SuppressWarnings("unchecked")
-    private BiFunction<? super T, ? super CheckIn, ? extends T> checkInDecorator = (BiFunction<T, CheckIn, T>) DEFAULT_CHECKIN_DECORATOR;
+    private BiFunction<? super T, ? super CheckIn, ? extends T> checkInDecorator
+        = (BiFunction<T, CheckIn, T>) DEFAULT_CHECKIN_DECORATOR;
+
     private Callable<Void> closeAction = () -> null;
 
-    private Builder() {}
+    private Builder() {
+      healthCheck = ALWAYS_TRUE;
+      idleTimeBeforeHealthCheckMs = 1000;
+      disposer = __ -> { };
+      maxSize = 10;
+      createRetryIntervalMs = 30000;
+      // TODO: Maybe changfe this?
+      scheduler = Schedulers.elastic();
+      maxIdleTimeMs = 0;
+    }
 
     public Builder<T> factory(final Callable<? extends T> factory) {
       this.factory = Objects.requireNonNull(factory);
@@ -171,7 +193,8 @@ public class NonBlockingPool<T> implements ReactivePool<T> {
       return this;
     }
 
-    public Builder<T> checkinDecorator(final BiFunction<? super T, ? super CheckIn, ? extends T> f) {
+    public Builder<T> checkinDecorator(
+        final BiFunction<? super T, ? super CheckIn, ? extends T> f) {
       this.checkInDecorator = f;
       return this;
     }
@@ -182,8 +205,9 @@ public class NonBlockingPool<T> implements ReactivePool<T> {
     }
 
     public NonBlockingPool<T> build() {
-      return new NonBlockingPool<>(factory, healthCheck, disposer, maxSize, idleTimeBeforeHealthCheckMs,
-          maxIdleTimeMs, createRetryIntervalMs, checkInDecorator, scheduler, closeAction);
+      return new NonBlockingPool<>(factory, healthCheck, disposer, maxSize,
+        idleTimeBeforeHealthCheckMs, maxIdleTimeMs, createRetryIntervalMs,
+        checkInDecorator, scheduler, closeAction);
     }
   }
 }
