@@ -115,7 +115,7 @@ final class MemberMono<T> extends Mono<Member<T>> implements Subscription, Close
 
   public void checkIn(final Member<T> member, final boolean decrementInitializeScheduled) {
     log.debug("checking in {}", member);
-    DecoratingMember<T> d = ((DecoratingMember<T>) member);
+    final DecoratingMember<T> d = ((DecoratingMember<T>) member);
     d.scheduleRelease();
     d.markAsChecked();
     initializedAvailable.offer((DecoratingMember<T>) member);
@@ -125,7 +125,7 @@ final class MemberMono<T> extends Mono<Member<T>> implements Subscription, Close
     drain();
   }
 
-  public void addToBeReleased(DecoratingMember<T> member) {
+  public void addToBeReleased(final DecoratingMember<T> member) {
     toBeReleased.offer(member);
     drain();
   }
@@ -234,10 +234,12 @@ final class MemberMono<T> extends Mono<Member<T>> implements Subscription, Close
     }
   }
 
-  private boolean trySchedulingInitialization(long r, long e, final DecoratingMember<T> m) {
+  private boolean trySchedulingInitialization(final long r,
+                                              final long e,
+                                              final DecoratingMember<T> m) {
     // check initializeScheduled using a CAS loop
     while (true) {
-      long cs = initializeScheduled.get();
+      final long cs = initializeScheduled.get();
       if (e + cs < r) {
         if (initializeScheduled.compareAndSet(cs, cs + 1)) {
           log.debug("scheduling member creation");

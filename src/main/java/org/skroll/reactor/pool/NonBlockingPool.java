@@ -82,6 +82,10 @@ public class NonBlockingPool<T> implements ReactivePool<T> {
     }
   }
 
+  /**
+   * Return a {@link Member} to the pool.
+   * @param m the member to return
+   */
   public void checkIn(final Member<T> m) {
     final MemberMono<T> mem = member.get();
     if (mem != null) {
@@ -93,7 +97,7 @@ public class NonBlockingPool<T> implements ReactivePool<T> {
   public void close() {
     closed = true;
     while (true) {
-      MemberMono<T> m = member.get();
+      final MemberMono<T> m = member.get();
       if (m == null) {
         return;
       } else if (member.compareAndSet(m, null)) {
@@ -103,7 +107,7 @@ public class NonBlockingPool<T> implements ReactivePool<T> {
     }
     try {
       closeAction.call();
-    } catch (Exception e) {
+    } catch (final Exception e) {
       Exceptions.throwIfFatal(e);
     }
   }
@@ -112,10 +116,20 @@ public class NonBlockingPool<T> implements ReactivePool<T> {
     return closed;
   }
 
+  /**
+   * Creates a new {@code NonBlockingPool} builder.
+   * @param factory the factory method used to create new objects
+   * @param <T> the type of pooled objects
+   * @return new builder
+   */
   public static <T> Builder<T> factory(final Callable<T> factory) {
     return new Builder<T>().factory(factory);
   }
 
+  /**
+   * Builder for {@code NonBlockingPool}s.
+   * @param <T> the type of pooled objects
+   */
   public static class Builder<T> {
     private static final Predicate<Object> ALWAYS_TRUE = o -> true;
     private static final BiFunction<Object, CheckIn, Object> DEFAULT_CHECKIN_DECORATOR
@@ -142,21 +156,37 @@ public class NonBlockingPool<T> implements ReactivePool<T> {
       disposer = __ -> { };
       maxSize = 10;
       createRetryIntervalMs = 30000;
-      // TODO: Maybe changfe this?
+      // TODO: Maybe change this?
       scheduler = Schedulers.elastic();
       maxIdleTimeMs = 0;
     }
 
+    /**
+     * Sets the factory to use.
+     * @param factory the factory
+     * @return the builder
+     */
     public Builder<T> factory(final Callable<? extends T> factory) {
       this.factory = Objects.requireNonNull(factory);
       return this;
     }
 
+    /**
+     * Sets the health check predicate.
+     * @param healthCheck the health check predicate
+     * @return the builder
+     */
     public Builder<T> healthCheck(final Predicate<? super T> healthCheck) {
       this.healthCheck = Objects.requireNonNull(healthCheck);
       return this;
     }
 
+    /**
+     * Sets the idle time before health checks.
+     * @param duration the duration
+     * @param unit the time units
+     * @return the builder
+     */
     public Builder<T> idleTimeBeforeHealthCheck(final long duration, final TimeUnit unit) {
       if (duration < 0) {
         throw new IllegalArgumentException("duration must be >= 0");
@@ -165,21 +195,43 @@ public class NonBlockingPool<T> implements ReactivePool<T> {
       return this;
     }
 
-    public Builder<T> maxIdleTime(final long value, final TimeUnit unit) {
-      this.maxIdleTimeMs = unit.toMillis(value);
+    /**
+     * Sets the maximum idle time before a pooled object is destroyed.
+     * @param duration the duration
+     * @param unit the time units
+     * @return the builder
+     */
+    public Builder<T> maxIdleTime(final long duration, final TimeUnit unit) {
+      this.maxIdleTimeMs = unit.toMillis(duration);
       return this;
     }
 
+    /**
+     * Sets the interval between object creation retry.
+     * @param duration the duration
+     * @param unit the time units
+     * @return the builder
+     */
     public Builder<T> createRetryInterval(final long duration, final TimeUnit unit) {
       this.createRetryIntervalMs = unit.toMillis(duration);
       return this;
     }
 
+    /**
+     * Sets the disposer action.
+     * @param disposer the disposer
+     * @return the builder
+     */
     public Builder<T> disposer(final Consumer<? super T> disposer) {
       this.disposer = Objects.requireNonNull(disposer);
       return this;
     }
 
+    /**
+     * Sets the maximum size of the pool.
+     * @param maxSize the maximum size
+     * @return the builder
+     */
     public Builder<T> maxSize(final int maxSize) {
       if (maxSize <= 0) {
         throw new IllegalArgumentException("maxSize must be > 0");
@@ -188,22 +240,41 @@ public class NonBlockingPool<T> implements ReactivePool<T> {
       return this;
     }
 
+    /**
+     * Sets the {@link Scheduler} to use for the pool.
+     * @param scheduler the scheduler
+     * @return the builder
+     */
     public Builder<T> scheduler(final Scheduler scheduler) {
       this.scheduler = Objects.requireNonNull(scheduler);
       return this;
     }
 
+    /**
+     * Sets the function to decorate pooled objects.
+     * @param f the function
+     * @return the builder
+     */
     public Builder<T> checkinDecorator(
         final BiFunction<? super T, ? super CheckIn, ? extends T> f) {
       this.checkInDecorator = f;
       return this;
     }
 
+    /**
+     * Sets the action when closing the pool.
+     * @param closeAction the close action
+     * @return the builder
+     */
     public Builder<T> onClose(final Callable<Void> closeAction) {
       this.closeAction = closeAction;
       return this;
     }
 
+    /**
+     * Builds the pool.
+     * @return the built pool
+     */
     public NonBlockingPool<T> build() {
       return new NonBlockingPool<>(factory, healthCheck, disposer, maxSize,
         idleTimeBeforeHealthCheckMs, maxIdleTimeMs, createRetryIntervalMs,

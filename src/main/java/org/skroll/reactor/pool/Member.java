@@ -6,7 +6,9 @@ package org.skroll.reactor.pool;
  */
 public interface Member<T> extends CheckIn {
   /**
-   * Returns the wrapped object.
+   * The wrapped object.
+   *
+   * @return the wrapped object
    */
   T value();
 
