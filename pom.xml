@@ -32,15 +32,32 @@
     <maven.checkstyle.plugin.version>3.0.0</maven.checkstyle.plugin.version>
     <maven.javadoc.plugin.version>3.0.0</maven.javadoc.plugin.version>
     <maven.project-info-reports.plugin.version>2.9</maven.project-info-reports.plugin.version>
+    <clover.plugin.version>4.2.1</clover.plugin.version>
 
     <checkstyle.version>8.8</checkstyle.version>
+
+    <reactor.version>3.1.5.RELEASE</reactor.version>
+    <junit.version>4.12</junit.version>
   </properties>
 
   <dependencies>
     <dependency>
       <groupId>io.projectreactor</groupId>
       <artifactId>reactor-core</artifactId>
-      <version>3.1.5.RELEASE</version>
+      <version>${reactor.version}</version>
+    </dependency>
+
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>${junit.version}</version>
+    </dependency>
+
+    <dependency>
+      <groupId>io.projectreactor</groupId>
+      <artifactId>reactor-test</artifactId>
+      <version>${reactor.version}</version>
+      <scope>test</scope>
     </dependency>
   </dependencies>
 
@@ -55,6 +72,7 @@
           <target>${maven.compiler.target}</target>
           <encoding>${project.build.sourceEncoding}</encoding>
         </configuration>
+
         <dependencies>
           <dependency>
             <groupId>com.puppycrawl.tools</groupId>
@@ -134,4 +152,42 @@
       </plugin>
     </plugins>
   </reporting>
+
+  <profiles>
+    <profile>
+      <id>coverage</id>
+      <activation>
+        <activeByDefault>true</activeByDefault>
+      </activation>
+
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.openclover</groupId>
+            <artifactId>clover-maven-plugin</artifactId>
+            <version>${clover.plugin.version}</version>
+            <executions>
+              <execution>
+                <phase>verify</phase>
+                <goals>
+                  <goal>instrument</goal>
+                  <goal>check</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+
+      <reporting>
+        <plugins>
+          <plugin>
+            <groupId>org.openclover</groupId>
+            <artifactId>clover-maven-plugin</artifactId>
+            <version>${clover.plugin.version}</version>
+          </plugin>
+        </plugins>
+      </reporting>
+    </profile>
+  </profiles>
 </project>

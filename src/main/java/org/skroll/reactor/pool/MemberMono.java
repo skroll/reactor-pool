@@ -16,12 +16,14 @@ import reactor.core.CoreSubscriber;
 import reactor.core.Disposable;
 import reactor.core.Disposables;
 import reactor.core.Exceptions;
+import reactor.core.Scannable;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Operators;
 import reactor.core.publisher.Operators.MonoSubscriber;
 import reactor.core.scheduler.Scheduler;
 import reactor.util.Logger;
 import reactor.util.Loggers;
+import reactor.util.annotation.Nullable;
 import reactor.util.concurrent.Queues;
 
 final class MemberMono<T> extends Mono<Member<T>> implements Subscription, Closeable, Runnable {
@@ -96,7 +98,9 @@ final class MemberMono<T> extends Mono<Member<T>> implements Subscription, Close
     // as a subscription to the singleton MemberMono
     final MemberMonoSubscriber<T> s = new MemberMonoSubscriber<>(actual, this);
     actual.onSubscribe(s);
+
     if (pool.isClosed()) {
+      //s.onError(new PoolClosedException());
       actual.onError(new PoolClosedException());
       return;
     }
@@ -138,7 +142,6 @@ final class MemberMono<T> extends Mono<Member<T>> implements Subscription, Close
   @Override
   public void cancel() {
     this.cancelled = true;
-    disposeAll();
   }
 
   @Override
@@ -182,7 +185,7 @@ final class MemberMono<T> extends Mono<Member<T>> implements Subscription, Close
           }
           // check for an already initialized available member
           final DecoratingMember<T> m = initializedAvailable.poll();
-          log.debug("poll of available members returns {}", m);
+          log.debug("poll of available members returns {}", String.valueOf(m));
 
           if (m == null) {
             // no members available, check for a released member (that needs to be
@@ -537,10 +540,9 @@ final class MemberMono<T> extends Mono<Member<T>> implements Subscription, Close
     drain();
   }
 
-  static final class MemberMonoSubscriber<T> extends MonoSubscriber<Member<T>, Member<T>>
-      implements Disposable {
+  static final class MemberMonoSubscriber<T> extends MonoSubscriber<Member<T>, Member<T>> {
     final AtomicReference<MemberMono<T>> parent = new AtomicReference<>();
-    Subscription subscription;
+    // Subscription subscription;
 
     public MemberMonoSubscriber(final CoreSubscriber<? super Member<T>> actual,
                                 final MemberMono<T> parent) {
@@ -548,18 +550,18 @@ final class MemberMono<T> extends Mono<Member<T>> implements Subscription, Close
       this.parent.lazySet(parent);
     }
 
-    @Override
-    public void onSubscribe(final Subscription s) {
-      if (Operators.validate(this.subscription, s)) {
-        this.subscription = s;
-        actual.onSubscribe(this);
-      }
-    }
+//    @Override
+//    public void onSubscribe(final Subscription s) {
+//      if (Operators.validate(this.subscription, s)) {
+//        this.subscription = s;
+//        actual.onSubscribe(this);
+//      }
+//    }
 
-    @Override
-    public void onComplete() {
-      super.onComplete();
-    }
+//    @Override
+//    public void onComplete() {
+//      super.onComplete();
+//    }
 
     @Override
     public void onNext(final Member<T> t) {
@@ -567,14 +569,21 @@ final class MemberMono<T> extends Mono<Member<T>> implements Subscription, Close
     }
 
     @Override
-    public void dispose() {
+    public void cancel() {
+      // subscription = null;
+      dispose();
+      super.cancel();
+    }
+
+    // @Override
+    void dispose() {
       final MemberMono<T> p = parent.getAndSet(null);
       if (p != null) {
         p.remove(this);
       }
     }
 
-    public boolean isDisposed() {
+    boolean isDisposed() {
       return parent.get() == null;
     }
   }
