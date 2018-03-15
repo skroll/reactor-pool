@@ -137,7 +137,9 @@ final class MemberMono<T> extends Mono<Member<T>> implements Subscription, Close
 
   @Override
   public void cancel() {
+    log.debug("cancel called");
     this.cancelled = true;
+    disposeAll();
   }
 
   @Override
