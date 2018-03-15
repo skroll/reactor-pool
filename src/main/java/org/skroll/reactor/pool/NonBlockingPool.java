@@ -156,8 +156,7 @@ public class NonBlockingPool<T> implements ReactivePool<T> {
       disposer = __ -> { };
       maxSize = 10;
       createRetryIntervalMs = 30000;
-      // TODO: Maybe change this?
-      scheduler = Schedulers.elastic();
+      scheduler = Schedulers.parallel();
       maxIdleTimeMs = 0;
     }
 

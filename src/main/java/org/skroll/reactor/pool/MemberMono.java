@@ -16,14 +16,11 @@ import reactor.core.CoreSubscriber;
 import reactor.core.Disposable;
 import reactor.core.Disposables;
 import reactor.core.Exceptions;
-import reactor.core.Scannable;
 import reactor.core.publisher.Mono;
-import reactor.core.publisher.Operators;
 import reactor.core.publisher.Operators.MonoSubscriber;
 import reactor.core.scheduler.Scheduler;
 import reactor.util.Logger;
 import reactor.util.Loggers;
-import reactor.util.annotation.Nullable;
 import reactor.util.concurrent.Queues;
 
 final class MemberMono<T> extends Mono<Member<T>> implements Subscription, Closeable, Runnable {
@@ -414,15 +411,15 @@ final class MemberMono<T> extends Mono<Member<T>> implements Subscription, Close
     }
   }
 
-  void add(MemberMonoSubscriber<T> inner) {
+  void add(final MemberMonoSubscriber<T> inner) {
     while (true) {
-      Subscribers<T> a = subscribers.get();
-      int n = a.subscribers.length;
+      final Subscribers<T> a = subscribers.get();
+      final int n = a.subscribers.length;
       @SuppressWarnings("unchecked")
-      MemberMonoSubscriber<T>[] b = new MemberMonoSubscriber[n + 1];
+      final MemberMonoSubscriber<T>[] b = new MemberMonoSubscriber[n + 1];
       System.arraycopy(a.subscribers, 0, b, 0, n);
       b[n] = inner;
-      boolean[] active = new boolean[n + 1];
+      final boolean[] active = new boolean[n + 1];
       System.arraycopy(a.active, 0, active, 0, n);
       active[n] = true;
       if (subscribers.compareAndSet(a, new Subscribers<>(b, active, a.activeCount + 1, a.index))) {
@@ -445,7 +442,7 @@ final class MemberMono<T> extends Mono<Member<T>> implements Subscription, Close
   @SuppressWarnings("unchecked")
   void remove(final MemberMonoSubscriber<T> inner) {
     while (true) {
-      Subscribers<T> a = subscribers.get();
+      final Subscribers<T> a = subscribers.get();
       int n = a.subscribers.length;
       if (n == 0) {
         return;
@@ -464,17 +461,18 @@ final class MemberMono<T> extends Mono<Member<T>> implements Subscription, Close
         return;
       }
 
-      Subscribers<T> next;
+      final Subscribers<T> next;
+
       if (n == 1) {
         next = EMPTY;
       } else {
-        MemberMonoSubscriber<T>[] b = new MemberMonoSubscriber[n - 1];
+        final MemberMonoSubscriber<T>[] b = new MemberMonoSubscriber[n - 1];
         System.arraycopy(a.subscribers, 0, b, 0, j);
         System.arraycopy(a.subscribers, j + 1, b, j, n - j - 1);
-        boolean[] active = new boolean[n - 1];
+        final boolean[] active = new boolean[n - 1];
         System.arraycopy(a.active, 0, active, 0, j);
         System.arraycopy(a.active, j + 1, active, j, n - j - 1);
-        int nextActiveCount = a.active[j] ? a.activeCount - 1 : a.activeCount;
+        final int nextActiveCount = a.active[j] ? a.activeCount - 1 : a.activeCount;
         if (a.index >= j && a.index > 0) {
           next = new Subscribers<>(b, active, nextActiveCount, a.index - 1);
         } else {
@@ -534,7 +532,7 @@ final class MemberMono<T> extends Mono<Member<T>> implements Subscription, Close
     }
   }
 
-  public void release(DecoratingMember<T> m) {
+  public void release(final DecoratingMember<T> m) {
     notInitialized.offer(m);
     drain();
   }
@@ -555,10 +553,8 @@ final class MemberMono<T> extends Mono<Member<T>> implements Subscription, Close
 
     @Override
     public void cancel() {
-      if (!isCancelled()) {
-        super.cancel();
-        dispose();
-      }
+      dispose();
+      super.cancel();
     }
 
     void dispose() {
