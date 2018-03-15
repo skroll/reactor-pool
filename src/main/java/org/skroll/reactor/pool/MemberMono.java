@@ -100,7 +100,6 @@ final class MemberMono<T> extends Mono<Member<T>> implements Subscription, Close
     actual.onSubscribe(s);
 
     if (pool.isClosed()) {
-      //s.onError(new PoolClosedException());
       actual.onError(new PoolClosedException());
       return;
     }
@@ -542,26 +541,12 @@ final class MemberMono<T> extends Mono<Member<T>> implements Subscription, Close
 
   static final class MemberMonoSubscriber<T> extends MonoSubscriber<Member<T>, Member<T>> {
     final AtomicReference<MemberMono<T>> parent = new AtomicReference<>();
-    // Subscription subscription;
 
     public MemberMonoSubscriber(final CoreSubscriber<? super Member<T>> actual,
                                 final MemberMono<T> parent) {
       super(actual);
       this.parent.lazySet(parent);
     }
-
-//    @Override
-//    public void onSubscribe(final Subscription s) {
-//      if (Operators.validate(this.subscription, s)) {
-//        this.subscription = s;
-//        actual.onSubscribe(this);
-//      }
-//    }
-
-//    @Override
-//    public void onComplete() {
-//      super.onComplete();
-//    }
 
     @Override
     public void onNext(final Member<T> t) {
@@ -570,12 +555,12 @@ final class MemberMono<T> extends Mono<Member<T>> implements Subscription, Close
 
     @Override
     public void cancel() {
-      // subscription = null;
-      dispose();
-      super.cancel();
+      if (!isCancelled()) {
+        super.cancel();
+        dispose();
+      }
     }
 
-    // @Override
     void dispose() {
       final MemberMono<T> p = parent.getAndSet(null);
       if (p != null) {

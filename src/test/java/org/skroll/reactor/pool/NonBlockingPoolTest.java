@@ -1,7 +1,6 @@
 package org.skroll.reactor.pool;
 
 import org.junit.Assert;
-import org.junit.Before;
 import org.junit.Test;
 import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
@@ -50,10 +49,8 @@ public class NonBlockingPoolTest {
       });
 
     Assert.assertEquals(0, count.get());
-    // d.dispose();
     s.advanceTime();
-//    Assert.assertEquals(1, count.get());
-//    Assert.assertEquals(0, disposed.get());
+    Assert.assertEquals(1, count.get());
   }
   @Test
   public void testMaxIdleTime() {
