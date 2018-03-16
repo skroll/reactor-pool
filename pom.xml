@@ -61,6 +61,12 @@
       <version>${reactor.version}</version>
       <scope>test</scope>
     </dependency>
+
+    <dependency>
+      <groupId>org.skroll.reactor</groupId>
+      <artifactId>reactor-test-extras</artifactId>
+      <version>0.0.1-SNAPSHOT</version>
+    </dependency>
   </dependencies>
 
   <build>
@@ -156,6 +162,7 @@
   </reporting>
 
   <profiles>
+    <!-- Enable/disable code-coverage -->
     <profile>
       <id>coverage</id>
       <activation>
